@@ -4,3 +4,6 @@
 .Ruserdata
 modscagdownloads/
 data/
+output/
+*.tif
+*.jpg
