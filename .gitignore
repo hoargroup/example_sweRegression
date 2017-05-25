@@ -5,7 +5,6 @@
 modscagdownloads/
 data/
 output/
-*.tif
-*.jpg
-/preprocess_phv/*
-!*.R
+*
+!*/
+!*.c
