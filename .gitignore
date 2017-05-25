@@ -7,3 +7,6 @@ data/
 output/
 *.tif
 *.jpg
+preprocess_phv/*
+!preprocess_phv/*.R
+!preprocess_phv/*.r
