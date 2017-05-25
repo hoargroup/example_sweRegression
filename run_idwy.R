@@ -23,6 +23,7 @@ EXTENT_NORTH = 49
 EXTENT_EAST = -106.15
 EXTENT_SOUTH = 42
 EXTENT_WEST = -117.25
+RESO = 15/3600
 PATH_SNOTEL=paste0(RUNNAME,'/data/snoteldownloads')
 PATH_MODSCAGDOWNLOAD='./modscagdownloads'
 PATH_FSCA=paste0(RUNNAME,'/data/fsca')
@@ -105,7 +106,7 @@ stations_available <- station_locations %>%
 station_data=get_stationswe_data(yr,stations_available,'snotel')
 
 # --- get modscag NRT image or use archived modscag images
-simfsca <- get_modscag_data(doy,yr,'historic',PATH_FSCA)
+simfsca <- get_modscag_data(doy,yr,'historic',PATH_FSCA,RESO,EXTENT_WEST,EXTENT_EAST,EXTENT_SOUTH,EXTENT_NORTH)
 simfscafilename=paste0(PATH_FSCA,'/modscag_fsca_',yr,doy,'.tif')
 simfsca=raster(simfscafilename)
 # plot(simfsca,zlim=c(0,100))
