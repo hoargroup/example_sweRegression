@@ -28,7 +28,7 @@ PATH_SNOTEL=paste0(RUNNAME,'/data/snoteldownloads')
 PATH_MODSCAGDOWNLOAD='./modscagdownloads'
 PATH_FSCA=paste0(RUNNAME,'/data/fsca')
 PATH_PHV=paste0(RUNNAME,'/data/phv')
-PATH_OUTPUT=paste0(RUNNAME,'/output-w_obscuredstations')
+PATH_OUTPUT=paste0(RUNNAME,'/output/w_obscuredstations')
 PATH_MAPS=paste0(PATH_OUTPUT,'/swe_fsca_sidexside')
 
 # ------ set up folders

@@ -1,11 +1,21 @@
-# library(raster)
-# library(tidyverse)
+library(rgdal)
+library(raster)
+library(tidyverse)
 library(stationsweRegression)
-# library(rgdal)
-# library(glmnetUtils)
-# library(modelr)
+library(glmnetUtils)
+library(modelr)
 # library(cowplot)
 # library(viridis)
+
+# constants
+DATEFILE='ucrb_dates.csv'
+RUNNAME='ucrb'
+EXTENT_NORTH = 43.75
+EXTENT_EAST = -104.125
+EXTENT_SOUTH = 33
+EXTENT_WEST = -112.25
+RESO = 15/3600
+
 
 # input setup
 PATH_MODSCAGDOWNLOAD='modscagdownloads'
@@ -14,17 +24,9 @@ PATH_PHV=paste0(RUNNAME,'/data/phv')
 # output directories
 PATH_SNOTEL=paste0(RUNNAME,'/data/snoteldownloads')
 PATH_FSCA=paste0(RUNNAME,'/data/fsca')
-PATH_OUTPUT=paste0(RUNNAME,'/output-w_obscuredstations')
+PATH_OUTPUT=paste0(RUNNAME,'/output/w_obscuredstations')
 PATH_MAPS=paste0(PATH_OUTPUT,'/swe_fsca_sidexside')
 
-# constants
-DATEFILE='ucrb_dates.csv'
-RUNNAME='ucrb'
-EXTENT_NORTH = 43.75
-EXTENT_EAST = -106.125
-EXTENT_SOUTH = 33
-EXTENT_WEST = -112.25
-RESO = 15/3600
 
 # ------ set up folders
 dir.create(path=PATH_SNOTEL,rec=TRUE)
@@ -67,13 +69,6 @@ whichdates <- import_dates(DATEFILE)
 # View(whichdates)
 
 
-# ### --- sample date. which date are we simulating? best cloud free image from https://worldview.earthdata.nasa.gov
-# simdate=as.Date('2001-04-26')
-# yr=strftime(simdate,'%Y')
-# doy=strftime(simdate,'%j')
-# mth=strftime(simdate,'%m')
-# dy=strftime(simdate,'%d')
-
 irow=1
 for(irow in 1:nrow(whichdates)){
 	simdate=whichdates$dte[irow]
@@ -102,8 +97,7 @@ station_data=get_stationswe_data(yr,stations_available,'snotel')
 
 # --- get modscag NRT image or use archived modscag images
 simfsca <- get_modscag_data(doy,yr,'historic',PATH_FSCA,RESO,EXTENT_WEST,EXTENT_EAST,EXTENT_SOUTH,EXTENT_NORTH)
-simfscafilename=paste0(PATH_FSCA,'/modscag_fsca_',yr,doy,'.tif')
-simfsca=raster(simfscafilename)
+# Make sure fsca was properly retrieved!
 # plot(simfsca,zlim=c(0,100))
 
 ## ----- subset snotel data for simulation date
@@ -143,20 +137,11 @@ swedata=inner_join(snotel_snow,phvsnotel,by=c('Station_ID','Site_ID'))
 ## ------ combine fsca with phv data
 predictdF <- bind_cols(ucophv,as.data.frame(simfsca) %>% setNames('fsca')) %>% tbl_df
 
-# ucophvsc <- scale(ucophv)
-# avg=attr(ucophvsc,'scaled:center')
-# std=attr(ucophvsc,'scaled:scale')
-# varind=which(names(phvsnotel) %in% names(ucophvsc))
-# for(i in varind){
-#   ucoind=which(names(avg) %in% names(phvsnotel)[i])
-#   phvsnotel[,i]=(phvsnotel[,i]-avg[ucoind])/std[ucoind]
-# }
-
 ## ---- merge today's snotel data and phv data and fit model
 doidata=inner_join(snoteltoday,phvsnotel,by=c('Station_ID','Site_ID')) %>%
 	inner_join(snotel_snow) %>%
 	mutate(fsca=ifelse(fsca>100 & snotel>0,100,fsca)) %>%
-	mutate(fsca=ifelse(fsca==0 & snotel>0,15,fsca)) %>%
+	mutate(fsca=ifelse(fsca==0 & snotel>0,10,fsca)) %>%
 	filter(fsca<=100) %>%
 	mutate(swe=snotel)#*fsca/100)
 
@@ -177,13 +162,15 @@ allmdls <-
 	group_by(dte) %>%
 	do({
 		#crossv_mc uses random sampling (with replacement?) to crossvalidate. loocv is also possible with crossv_kfold(...,k=nrow(.)) but it will take much longer. Also, r2 needs to be calculated outside this loop because currenlty the skill metric can't caluclate r2 with just 1 test point
-		datsplit=crossv_mc(.,n=50,test=0.1)	%>%
+		datsplit <- 
+			crossv_mc(.,n=30,test=0.1)	%>%
 			mutate(
 				phvfsca_obj_glmmdl=map(train,gnet_phvfsca,cl),
 				phvfsca_r2_glmmdl=map2_dbl(phvfsca_obj_glmmdl,test,myr2),
 				phvfsca_pctmae_glmmdl=map2_dbl(phvfsca_obj_glmmdl,test,mypctmae)
 			)
 	})
+
 
 stat_r2 <-
 	allmdls %>%
