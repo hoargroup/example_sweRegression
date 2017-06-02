@@ -4,10 +4,11 @@ library(tidyverse)
 library(stationsweRegression)
 library(glmnetUtils)
 library(modelr)
-# library(cowplot)
-# library(viridis)
+library(cowplot)
+library(viridis)
+library(rasterVis)
 
-# constants
+# constants ----
 DATEFILE='ucrb_dates.csv'
 RUNNAME='ucrb'
 EXTENT_NORTH = 43.75
@@ -17,217 +18,247 @@ EXTENT_WEST = -112.25
 RESO = 15/3600
 
 
-# input setup
+# input setup ----
 PATH_MODSCAGDOWNLOAD='modscagdownloads'
 PATH_PHV=paste0(RUNNAME,'/data/phv')
 
-# output directories
+# output directories ----
 PATH_SNOTEL=paste0(RUNNAME,'/data/snoteldownloads')
 PATH_FSCA=paste0(RUNNAME,'/data/fsca')
 PATH_OUTPUT=paste0(RUNNAME,'/output/w_obscuredstations')
 PATH_MAPS=paste0(PATH_OUTPUT,'/swe_fsca_sidexside')
 
 
-# ------ set up folders
+# set up folders ----
 dir.create(path=PATH_SNOTEL,rec=TRUE)
 dir.create(path=PATH_FSCA,rec=TRUE)
-dir.create(path=PATH_OUTPUT,rec=TRUE)
+dir.create(path=PATH_MAPS,rec=TRUE)
 
-# import watermask
+# import watermask ----
 watermask <- raster(paste0(RUNNAME,'/data/gis/',toupper(RUNNAME),'_watermask.tif'))
 
-# ------- get station metadata
+# get station metadata ----
 all_available_stations <- get_inv('snotel')
 # filter stations by bounding box using latitude and longitude.
 station_locations <- all_available_stations %>%
-	# filter(Latitude>=33, Latitude<=43.75, Longitude<= -104.125, Longitude>= -112.25)
 	filter(Latitude>=EXTENT_SOUTH, Latitude<=EXTENT_NORTH, Longitude<= EXTENT_EAST, Longitude>= EXTENT_WEST)
 
-# # create a spatial object of the locations
+# create a spatial object of the locations ----
 snotellocs=as.data.frame(station_locations)
 coordinates(snotellocs)= ~Longitude+Latitude
 coordnames(snotellocs)=c('x','y')
 proj4string(snotellocs)='+proj=longlat +datum=WGS84'
 # snotellocs.usgs=spTransform(snotellocs,'+init=epsg:5070')
 
-# get phv variables for entire domain
+# get phv variables ----
+# get phv variables for entire domain from /data/phv folder and convert to a dataframe
+# see use_package and Make_PHV_Inputs vignette
 phvfilenames=dir(PATH_PHV,pattern='.tif$',full.names=TRUE)
 phvstack=stack(phvfilenames)
 names(phvstack) <- sapply(strsplit(names(phvstack),'_'),'[',2)
+ucophv <- as.data.frame(phvstack)
 
+#  extract the phv variable values for the station locations ----
 phvsnotel=raster::extract(phvstack,snotellocs,sp=T)
 phvsnotel=phvsnotel %>%
 	as.data.frame() %>%
 	tbl_df %>%
-	dplyr::select(Station_ID,Site_ID,site_name,dem:zness) %>%
-	mutate_if(is.factor,as.character)
+	dplyr::select(Station_ID,Site_ID,site_name,dem:zness)
 
-ucophv <- as.data.frame(phvstack)
-
-# import list of dates to simulate
+# import list of dates to simulate ----
 whichdates <- import_dates(DATEFILE)
 # View(whichdates)
 
-
+# run estimate ----
+# iterate through each date in the datefile to estimate the distribution of SWE
 irow=1
 for(irow in 1:nrow(whichdates)){
+	# setup the date variables
 	simdate=whichdates$dte[irow]
 	yr=strftime(simdate,'%Y')
 	doy=strftime(simdate,'%j')
 	mth=strftime(simdate,'%m')
 	dy=strftime(simdate,'%d')
 	datestr=paste0(yr,mth,dy)
-
+	
 	print(simdate)
-
+	
+	# this checks for a map output that has swe and fsca side by side. remove this file if you want to make a new swe estimate
 	mapfn=paste0(PATH_MAPS,'/maps_',yr,mth,dy,'.png')
 	fe.logical=file.exists(mapfn)
 	if(fe.logical) {
 		print(paste0('map exists in ', PATH_MAPS,'. skipping.'))
 		next
 	}
-
-# filter stations by dates
-stations_available <- station_locations %>%
-	filter(start_date<simdate) %>%
-	filter(end_date>simdate)
-
-# download station swe data for the year of simulation date and merge with station locations
-station_data=get_stationswe_data(yr,stations_available,'snotel')
-
-# --- get modscag NRT image or use archived modscag images
-simfsca <- get_modscag_data(doy,yr,'historic',PATH_FSCA,RESO,EXTENT_WEST,EXTENT_EAST,EXTENT_SOUTH,EXTENT_NORTH)
-# Make sure fsca was properly retrieved!
-# plot(simfsca,zlim=c(0,100))
-
-## ----- subset snotel data for simulation date
-snoteltoday <-
-	station_data %>%
-	dplyr::select(-snwd,-swe) %>%
-	dplyr::filter_(~dte == simdate) %>%
-	dplyr::filter(!is.na(snotel)) %>% #i think files get downloaded with no data so they stay in the joined files
-	mutate(
-		yr=strftime(dte,'%Y'),
-		doy=strftime(dte,'%j'),
-		yrdoy=strftime(dte,'%Y%j'),
-		dy=strftime(dte,'%d'))
-
-## save current snotel as spatial vector file
-snoteltoday.sp=data.frame(snoteltoday)
-sp::coordinates(snoteltoday.sp)=~Longitude+Latitude
-proj4string(snoteltoday.sp)='+proj=longlat +datum=WGS84'
-snotelfilename=paste0(PATH_OUTPUT,'/snotel-',strftime(simdate,'%d%b%Y'),'.gpkg')
-if(!file.exists(snotelfilename)){
-  writeOGR(snoteltoday.sp,dsn=snotelfilename,layer='snotel_swe',driver='GPKG',overwrite_layer=TRUE)
-}
-
-
-# ## ---- merge snotelrecon data with snotel swe data and phv data
-newnames=c(names(snoteltoday.sp),'fsca')
-snotel_snow <-
-	raster::extract(simfsca,snoteltoday.sp,sp=T) %>%
-	as.data.frame() %>%
-	tbl_df %>%
-	dplyr::select(-Longitude,-Latitude) %>%
-	setNames(newnames) %>%
-	mutate_if(is.factor,as.character)
-
-swedata=inner_join(snotel_snow,phvsnotel,by=c('Station_ID','Site_ID'))
-
-## ------ combine fsca with phv data
-predictdF <- bind_cols(ucophv,as.data.frame(simfsca) %>% setNames('fsca')) %>% tbl_df
-
-## ---- merge today's snotel data and phv data and fit model
-doidata=inner_join(snoteltoday,phvsnotel,by=c('Station_ID','Site_ID')) %>%
-	inner_join(snotel_snow) %>%
-	mutate(fsca=ifelse(fsca>100 & snotel>0,100,fsca)) %>%
-	mutate(fsca=ifelse(fsca==0 & snotel>0,10,fsca)) %>%
-	filter(fsca<=100) %>%
-	mutate(swe=snotel)#*fsca/100)
-
-mdl=gnet_phvfsca(doidata)
-
-coef_dF <-
-	as.data.frame(as.matrix((coef(mdl)))) %>%
-	mutate(predictor=rownames(.)) %>%
-	setNames(c('coefficient','predictor'))
-
-write_tsv(format(coef_dF,sci=FALSE),
+	
+	## filter stations by dates ----
+	stations_available <- station_locations %>%
+		filter(start_date<simdate) %>%
+		filter(end_date>simdate)
+	
+	## download station swe data for the year of simulation date and merge with station locations ----
+	station_data=get_stationswe_data(yr,stations_available,'snotel')
+	
+	## get historical modscag image ----
+	# get historical modscag image or use archived modscag images. see 'use_package' vignette
+	simfsca <- get_modscag_data(doy,yr,'historic',PATH_FSCA,RESO,EXTENT_WEST,EXTENT_EAST,EXTENT_SOUTH,EXTENT_NORTH)
+	# Make sure fsca was properly retrieved!
+	# plot(simfsca,zlim=c(0,100))
+	
+	## subset snotel data for simulation date ----
+	snoteltoday <-
+		station_data %>%
+		dplyr::select(-snwd,-swe) %>%
+		dplyr::filter_(~dte == simdate) %>%
+		dplyr::filter(!is.na(snotel)) %>% #i think files get downloaded with no data so they stay in the joined files. need to remove these for the statistical model
+		mutate(
+			yr=strftime(dte,'%Y'),
+			doy=strftime(dte,'%j'),
+			yrdoy=strftime(dte,'%Y%j'),
+			dy=strftime(dte,'%d'))
+	
+	## save current snotel as spatial vector file ----
+	snoteltoday.sp=data.frame(snoteltoday)
+	sp::coordinates(snoteltoday.sp)=~Longitude+Latitude
+	proj4string(snoteltoday.sp)='+proj=longlat +datum=WGS84'
+	snotelfilename=paste0(PATH_OUTPUT,'/snotel-',strftime(simdate,'%d%b%Y'),'.gpkg')
+	if(!file.exists(snotelfilename)){
+		writeOGR(snoteltoday.sp,dsn=snotelfilename,layer='snotel_swe',driver='GPKG',overwrite_layer=TRUE)
+	}
+	
+	
+	## extract fsca data for the station pixels ----
+	newnames=c(names(snoteltoday.sp),'fsca')
+	snotel_snow <-
+		raster::extract(simfsca,snoteltoday.sp,sp=T) %>%
+		as.data.frame() %>%
+		tbl_df %>%
+		dplyr::select(-Longitude,-Latitude) %>%
+		setNames(newnames) %>%
+		mutate_if(is.factor,as.character)
+	
+	## join station fsca and swe data with station data ---
+	swedata=inner_join(snotel_snow,phvsnotel,by=c('Station_ID','Site_ID'))
+	
+	## combine fsca with phv data for the domain for subsequent prediction ----
+	predictdF <- bind_cols(ucophv,as.data.frame(simfsca) %>% setNames('fsca')) %>% tbl_df
+	
+	## merge today's snotel data and phv data ----
+	doidata=inner_join(snoteltoday,phvsnotel,by=c('Station_ID','Site_ID')) %>%
+		inner_join(snotel_snow) %>%
+		mutate(fsca=ifelse(fsca>100 & snotel>0,100,fsca)) %>%
+		mutate(fsca=ifelse(fsca==0 & snotel>0,10,fsca)) %>%
+		filter(fsca<=100) %>%
+		mutate(swe=snotel)#*fsca/100)
+	
+	## fit glmnet model ----
+	myformula <- snotel~lon+lat+dem+eastness+northness+dist2coast+dist2contdiv+regionaleastness+regionalnorthness+regionalzness+zness+fsca
+	mdl <- gnet_phvfsca(doidata,myformula)
+	
+	## predict on swe for domain and mask with fsca and watermask ----
+	yhat=predict(mdl,predictdF,na.action=na.pass)
+	simyhat=simfsca
+	values(simyhat) <- yhat
+	simyhat <- mask(simyhat,watermask,maskvalue=1,updatevalue=NA)
+	simyhat <- mask(simyhat,simfsca)
+	simyhat <- mask(simyhat,simfsca,maskvalue=250,updatevalue=250)
+	simyhat <- mask(simyhat,simfsca,maskvalue=0,updatevalue=0)
+	
+	## save prediction to file ----
+	outfile=paste0('phvfsca_',yr,mth,dy,'.tif')
+	writeRaster(simyhat,file.path(PATH_OUTPUT,outfile),NAflag=-99,overwrite=T)
+	
+	## create map of fsca and swe and save as image ----
+	gf <-
+		rasterVis::gplot(simfsca)+
+		geom_raster(aes(x,y,fill=value))+
+		coord_equal(expand=F)+
+		scale_fill_distiller('fSCA',palette='YlGnBu',limits=c(0,100))+
+		theme_cowplot(font_size=14)+
+		theme(axis.line.x=element_line(color=NA),
+					axis.line.y=element_line(color=NA))
+	
+	
+	maxswe=max(simyhat[simyhat<250])
+	gs <-
+		rasterVis::gplot(simyhat)+
+		geom_raster(aes(x,y,fill=value))+
+		coord_equal(expand=F)+
+		scale_fill_distiller('SWE [m]',palette='PuBu',limits=c(0,maxswe),direction = -1)+
+		theme_cowplot(font_size=14)+
+		theme(axis.line.x=element_line(color=NA),
+					axis.line.y=element_line(color=NA))
+	
+	pg <- cowplot::plot_grid(gf,gs,nrow=2,align='hv')
+	save_plot(plot=pg,filename=paste0(PATH_MAPS,'/maps_',yr,mth,dy,'.png'),base_height = 6)
+	
+	
+	
+	## save coefficients from model and write to file ----
+	coef_dF <-
+		as.data.frame(as.matrix((coef(mdl)))) %>%
+		mutate(predictor=rownames(.)) %>%
+		setNames(c('coefficient','predictor'))
+	
+	write_tsv(format(coef_dF,sci=FALSE),
 						path=paste0(PATH_OUTPUT,'/phvfsca_coefs_',datestr,'.txt')
-						)
-
-cl=NULL
-allmdls <-
-	doidata %>%
-	group_by(dte) %>%
-	do({
-		#crossv_mc uses random sampling (with replacement?) to crossvalidate. loocv is also possible with crossv_kfold(...,k=nrow(.)) but it will take much longer. Also, r2 needs to be calculated outside this loop because currenlty the skill metric can't caluclate r2 with just 1 test point
-		datsplit <- 
-			crossv_mc(.,n=30,test=0.1)	%>%
-			mutate(
-				phvfsca_obj_glmmdl=map(train,gnet_phvfsca,cl),
-				phvfsca_r2_glmmdl=map2_dbl(phvfsca_obj_glmmdl,test,myr2),
-				phvfsca_pctmae_glmmdl=map2_dbl(phvfsca_obj_glmmdl,test,mypctmae)
-			)
-	})
-
-
-stat_r2 <-
-	allmdls %>%
-	unnest(phvfsca_r2_glmmdl,.drop=T) %>%
-	summarise(
-		avg_r2=mean(phvfsca_r2_glmmdl,na.rm=T),
-		sd_r2=sd(phvfsca_r2_glmmdl,na.rm=T),
-		uci_r2=avg_r2+1.96*sd_r2/sqrt(n()),
-		lci_r2=avg_r2-1.96*sd_r2/sqrt(n())
 	)
-
-write_tsv(format(stat_r2,sci=FALSE),
-					path=paste0(PATH_OUTPUT,'/phvfsca_r2_',datestr,'.txt'))
-
-stat_pctmae <-
-	allmdls %>%
-	unnest(phvfsca_pctmae_glmmdl,.drop=T) %>%
-	summarise(
-		avg_pctmae=mean(phvfsca_pctmae_glmmdl,na.rm=T),
-		sd_pctmae=sd(phvfsca_pctmae_glmmdl,na.rm=T),
-		uci_pctmae=avg_pctmae+1.96*sd_pctmae/sqrt(n()),
-		lci_pctmae=avg_pctmae-1.96*sd_pctmae/sqrt(n())
-	)
-
-write_tsv(format(stat_pctmae,sci=FALSE),
-					path=paste0(PATH_OUTPUT,'/phvfsca_pctmae_',datestr,'.txt'))
-
-yhat=predict(mdl,predictdF)
-simyhat=simfsca
-values(simyhat) <- yhat
-simyhat <- mask(simyhat,watermask,maskvalue=1,updatevalue=NA)
-simyhat <- mask(simyhat,simfsca)
-simyhat <- mask(simyhat,simfsca,maskvalue=250,updatevalue=250)
-simyhat <- mask(simyhat,simfsca,maskvalue=0,updatevalue=0)
-# spplot(simyhat)
-
-outfile=paste0('phvfsca_',yr,mth,dy,'.tif')
-writeRaster(simyhat,file.path(PATH_OUTPUT,outfile),NAflag=-99,overwrite=T)
-
+	
+	## cross validation statistics  ----
+	cl=NULL
+	allmdls <-
+		doidata %>%
+		group_by(dte) %>%
+		do({
+			#crossv_mc uses random sampling (with replacement?) to crossvalidate. loocv is also possible with crossv_kfold(...,k=nrow(.)) but it will take much longer. Also, r2 needs to be calculated outside this loop because currenlty the skill metric can't caluclate r2 with just 1 test point
+			datsplit <- 
+				crossv_mc(.,n=30,test=0.1)	%>%
+				mutate(
+					phvfsca_obj_glmmdl=map(train,gnet_phvfsca,myformula,cl),
+					phvfsca_r2_glmmdl=map2_dbl(phvfsca_obj_glmmdl,test,myr2),
+					phvfsca_pctmae_glmmdl=map2_dbl(phvfsca_obj_glmmdl,test,mypctmae)
+				)
+		})
+	
+	
+	stat_r2 <-
+		allmdls %>%
+		unnest(phvfsca_r2_glmmdl,.drop=T) %>%
+		summarise(
+			avg_r2=mean(phvfsca_r2_glmmdl,na.rm=T),
+			sd_r2=sd(phvfsca_r2_glmmdl,na.rm=T),
+			uci_r2=avg_r2+1.96*sd_r2/sqrt(n()),
+			lci_r2=avg_r2-1.96*sd_r2/sqrt(n())
+		)
+	
+	write_tsv(format_numeric(stat_r2,sci=FALSE),
+						path=paste0(PATH_OUTPUT,'/phvfsca_r2_',datestr,'.txt'))
+	
+	stat_pctmae <-
+		allmdls %>%
+		unnest(phvfsca_pctmae_glmmdl,.drop=T) %>%
+		summarise(
+			avg_pctmae=mean(phvfsca_pctmae_glmmdl,na.rm=T),
+			sd_pctmae=sd(phvfsca_pctmae_glmmdl,na.rm=T),
+			uci_pctmae=avg_pctmae+1.96*sd_pctmae/sqrt(n()),
+			lci_pctmae=avg_pctmae-1.96*sd_pctmae/sqrt(n())
+		)
+	
+	write_tsv(format_numeric(stat_pctmae,sci=FALSE),
+						path=paste0(PATH_OUTPUT,'/phvfsca_pctmae_',datestr,'.txt'))
+	
 }
 
+
+# combine crossvalidation statistics from each date into a single file ----
 r2_fns <- dir(PATH_OUTPUT,glob2rx('^phvfsca_r2*.txt$'),full.names = TRUE)
 r2_fns <- r2_fns[!grepl('combined',r2_fns)]
 r2_df <- suppressMessages(
 	map_df(.x=r2_fns,.f=read_tsv)
 )
-write_tsv(r2_df,
+write_tsv(format_numeric(r2_df,sci=FALSE),
 					path=file.path(PATH_OUTPUT,'phvfsca_r2_combined.txt'))
 
-# r2_with <- r2_df %>% mutate(stainclusion='with')
-# r2_without <- r2_df %>% mutate(stainclusion='without')
-#
-# bind_rows(r2_with,r2_without) %>%
-# 	group_by(stainclusion) %>%
-# 	summarise(
-# 		mean(avg_r2)
-# 	)
 
 pctmae_fns <- dir(PATH_OUTPUT,glob2rx('^phvfsca_pctmae*.txt$'),full.names = TRUE)
 pctmae_fns <- pctmae_fns[!grepl('combined',pctmae_fns)]
@@ -236,12 +267,3 @@ pctmae_df <- suppressMessages(
 )
 write_tsv(pctmae_df,
 					path=file.path(PATH_OUTPUT,'phvfsca_pctmae_combined.txt'))
-
-# mae_without <- pctmae_df %>% mutate(stainclusion='without')
-# mae_with <- pctmae_df %>%  mutate(stainclusion='with')
-#
-# bind_rows(mae_with,mae_without) %>%
-# 	group_by(stainclusion) %>%
-# 	summarise(
-# 		mean(avg_pctmae)
-# 	)
