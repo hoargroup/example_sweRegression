@@ -10,3 +10,6 @@ output/
 idwy/preprocess_phv/*
 ucrb/preprocess_phv/*
 !*.R
+get_modscag.sh
+.DS_Store
+Icon

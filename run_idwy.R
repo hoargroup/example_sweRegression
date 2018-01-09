@@ -17,7 +17,7 @@ library(viridis)
 
 
 # constants
-DATEFILE='Wyoming_NewDates.csv'
+DATEFILE='Wyoming_2018Dates.csv'
 RUNNAME='idwy'
 EXTENT_NORTH = 49
 EXTENT_EAST = -106.15
@@ -35,6 +35,7 @@ PATH_MAPS=paste0(PATH_OUTPUT,'/swe_fsca_sidexside')
 dir.create(path=PATH_SNOTEL,rec=TRUE)
 dir.create(path=PATH_OUTPUT,rec=TRUE)
 dir.create(path=PATH_FSCA,rec=TRUE)
+dir.create(path=PATH_MAPS,rec=TRUE)
 
 # import watermask
 watermask <- raster(paste0(RUNNAME,'/data/gis/',toupper(RUNNAME),'_watermask.tif'))
@@ -157,7 +158,7 @@ predictdF <- bind_cols(ucophv,as.data.frame(simfsca) %>% setNames('fsca')) %>% t
 #   phvsnotel[,i]=(phvsnotel[,i]-avg[ucoind])/std[ucoind]
 # }
 
-## ---- merge today's snotel data and phv data and fit model
+## ---- merge today's snotel data and phv data 
 doidata=inner_join(snoteltoday,phvsnotel,by=c('Station_ID','Site_ID')) %>%
 	inner_join(snotel_snow) %>%
 	mutate(fsca=ifelse(fsca>100 & snotel>0,100,fsca)) %>%
@@ -165,30 +166,76 @@ doidata=inner_join(snoteltoday,phvsnotel,by=c('Station_ID','Site_ID')) %>%
 	filter(fsca<=100) %>%
 	mutate(swe=snotel)#*fsca/100)
 
-mdl=gnet_phvfsca(doidata)
+## fit glmnet model ----
+myformula <- snotel~lon+lat+dem+eastness+northness+dist2coast+dist2contdiv+regionaleastness+regionalnorthness+regionalzness+zness+fsca
+mdl <- gnet_phvfsca(doidata,myformula)
 
+## predict on swe for domain and mask with fsca and watermask ----
+yhat=predict(mdl,predictdF,na.action=na.pass)
+simyhat=simfsca
+values(simyhat) <- yhat
+simyhat <- mask(simyhat,watermask,maskvalue=1,updatevalue=NA)
+simyhat <- mask(simyhat,simfsca)
+simyhat <- mask(simyhat,simfsca,maskvalue=235,updatevalue=235)
+simyhat <- mask(simyhat,simfsca,maskvalue=250,updatevalue=250)
+simyhat <- mask(simyhat,simfsca,maskvalue=0,updatevalue=0)
+# plot(simyhat,zlim=c(0,2))
+
+## save prediction to file ----
+outfile=paste0('phvfsca_',yr,mth,dy,'.tif')
+writeRaster(simyhat,file.path(PATH_OUTPUT,outfile),NAflag=-99,overwrite=T)
+
+## create map of fsca and swe and save as image ----
+gf <-
+	rasterVis::gplot(simfsca)+
+	geom_raster(aes(x,y,fill=value))+
+	coord_equal(expand=F)+
+	scale_fill_distiller('fSCA',palette='YlGnBu',limits=c(0,100))+
+	theme_cowplot(font_size=14)+
+	theme(axis.line.x=element_line(color=NA),
+				axis.line.y=element_line(color=NA))
+
+
+maxswe=max(simyhat[simyhat<230])
+gs <-
+	rasterVis::gplot(simyhat)+
+	geom_raster(aes(x,y,fill=value))+
+	coord_equal(expand=F)+
+	scale_fill_distiller('SWE [m]',palette='PuBu',limits=c(0,maxswe),direction = -1)+
+	theme_cowplot(font_size=14)+
+	theme(axis.line.x=element_line(color=NA),
+				axis.line.y=element_line(color=NA))
+
+pg <- cowplot::plot_grid(gf,gs,nrow=2,align='hv')
+save_plot(plot=pg,filename=paste0(PATH_MAPS,'/maps_',yr,mth,dy,'.png'),base_height = 6)
+
+
+## save coefficients from model and write to file ----
 coef_dF <-
 	as.data.frame(as.matrix((coef(mdl)))) %>%
 	mutate(predictor=rownames(.)) %>%
 	setNames(c('coefficient','predictor'))
 
 write_tsv(format(coef_dF,sci=FALSE),
-						path=paste0(PATH_OUTPUT,'/phvfsca_coefs_',datestr,'.txt')
-						)
+					path=paste0(PATH_OUTPUT,'/phvfsca_coefs_',datestr,'.txt')
+)
 
+## cross validation statistics  ----
 cl=NULL
 allmdls <-
 	doidata %>%
 	group_by(dte) %>%
 	do({
 		#crossv_mc uses random sampling (with replacement?) to crossvalidate. loocv is also possible with crossv_kfold(...,k=nrow(.)) but it will take much longer. Also, r2 needs to be calculated outside this loop because currenlty the skill metric can't caluclate r2 with just 1 test point
-		datsplit=crossv_mc(.,n=50,test=0.1)	%>%
+		datsplit <- 
+			crossv_mc(.,n=30,test=0.1)	%>%
 			mutate(
-				phvfsca_obj_glmmdl=map(train,gnet_phvfsca,cl),
+				phvfsca_obj_glmmdl=map(train,gnet_phvfsca,myformula,cl),
 				phvfsca_r2_glmmdl=map2_dbl(phvfsca_obj_glmmdl,test,myr2),
 				phvfsca_pctmae_glmmdl=map2_dbl(phvfsca_obj_glmmdl,test,mypctmae)
 			)
 	})
+
 
 stat_r2 <-
 	allmdls %>%
@@ -200,7 +247,7 @@ stat_r2 <-
 		lci_r2=avg_r2-1.96*sd_r2/sqrt(n())
 	)
 
-write_tsv(format(stat_r2,sci=FALSE),
+write_tsv(format_numeric(stat_r2,sci=FALSE),
 					path=paste0(PATH_OUTPUT,'/phvfsca_r2_',datestr,'.txt'))
 
 stat_pctmae <-
@@ -213,20 +260,9 @@ stat_pctmae <-
 		lci_pctmae=avg_pctmae-1.96*sd_pctmae/sqrt(n())
 	)
 
-write_tsv(format(stat_pctmae,sci=FALSE),
+write_tsv(format_numeric(stat_pctmae,sci=FALSE),
 					path=paste0(PATH_OUTPUT,'/phvfsca_pctmae_',datestr,'.txt'))
 
-yhat=predict(mdl,predictdF)
-simyhat=simfsca
-values(simyhat) <- yhat
-simyhat <- mask(simyhat,watermask,maskvalue=1,updatevalue=NA)
-simyhat <- mask(simyhat,simfsca)
-simyhat <- mask(simyhat,simfsca,maskvalue=250,updatevalue=250)
-simyhat <- mask(simyhat,simfsca,maskvalue=0,updatevalue=0)
-# spplot(simyhat)
-
-outfile=paste0('phvfsca_',yr,mth,dy,'.tif')
-writeRaster(simyhat,file.path(PATH_OUTPUT,outfile),NAflag=-99,overwrite=T)
 
 }
 
@@ -263,3 +299,4 @@ write_tsv(pctmae_df,
 # 	summarise(
 # 		mean(avg_pctmae)
 # 	)
+

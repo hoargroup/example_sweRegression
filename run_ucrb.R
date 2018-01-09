@@ -1,7 +1,7 @@
+library(stationsweRegression)
 library(rgdal)
 library(raster)
 library(tidyverse)
-library(stationsweRegression)
 library(glmnetUtils)
 library(modelr)
 library(cowplot)
@@ -9,7 +9,7 @@ library(viridis)
 library(rasterVis)
 
 # constants ----
-DATEFILE='ucrb_dates.csv'
+DATEFILE='ucrb_2018dates.csv'
 RUNNAME='ucrb'
 EXTENT_NORTH = 43.75
 EXTENT_EAST = -104.125
@@ -97,11 +97,13 @@ for(irow in 1:nrow(whichdates)){
 		filter(end_date>simdate)
 	
 	## download station swe data for the year of simulation date and merge with station locations ----
+	# uses gethistoric.sh from https://www.wcc.nrcs.usda.gov/web_service/NWCC_Web_Report_Scripting.txt to download snotel data. this shell script comes with the package
 	station_data=get_stationswe_data(yr,stations_available,'snotel')
 	
 	## get historical modscag image ----
 	# get historical modscag image or use archived modscag images. see 'use_package' vignette
-	simfsca <- get_modscag_data(doy,yr,'historic',PATH_FSCA,RESO,EXTENT_WEST,EXTENT_EAST,EXTENT_SOUTH,EXTENT_NORTH)
+	
+	simfsca <- get_modscag_data(doy,yr,'NRT',PATH_FSCA,RESO,EXTENT_WEST,EXTENT_EAST,EXTENT_SOUTH,EXTENT_NORTH)
 	# Make sure fsca was properly retrieved!
 	# plot(simfsca,zlim=c(0,100))
 	
@@ -161,6 +163,7 @@ for(irow in 1:nrow(whichdates)){
 	values(simyhat) <- yhat
 	simyhat <- mask(simyhat,watermask,maskvalue=1,updatevalue=NA)
 	simyhat <- mask(simyhat,simfsca)
+	simyhat <- mask(simyhat,simfsca,maskvalue=235,updatevalue=235)
 	simyhat <- mask(simyhat,simfsca,maskvalue=250,updatevalue=250)
 	simyhat <- mask(simyhat,simfsca,maskvalue=0,updatevalue=0)
 	
@@ -179,7 +182,7 @@ for(irow in 1:nrow(whichdates)){
 					axis.line.y=element_line(color=NA))
 	
 	
-	maxswe=max(simyhat[simyhat<250])
+	maxswe=max(simyhat[simyhat<200])
 	gs <-
 		rasterVis::gplot(simyhat)+
 		geom_raster(aes(x,y,fill=value))+
@@ -191,7 +194,6 @@ for(irow in 1:nrow(whichdates)){
 	
 	pg <- cowplot::plot_grid(gf,gs,nrow=2,align='hv')
 	save_plot(plot=pg,filename=paste0(PATH_MAPS,'/maps_',yr,mth,dy,'.png'),base_height = 6)
-	
 	
 	
 	## save coefficients from model and write to file ----
@@ -267,3 +269,4 @@ pctmae_df <- suppressMessages(
 )
 write_tsv(pctmae_df,
 					path=file.path(PATH_OUTPUT,'phvfsca_pctmae_combined.txt'))
+
