@@ -88,87 +88,77 @@ for(irow in 1:nrow(whichdates)){
 	mth=strftime(simdate,'%m')
 	dy=strftime(simdate,'%d')
 	datestr=paste0(yr,mth,dy)
-
+	
 	print(simdate)
-
+	
 	mapfn=paste0(PATH_MAPS,'/maps_',yr,mth,dy,'.png')
 	fe.logical=file.exists(mapfn)
 	if(fe.logical) {
 		print(paste0('map exists in ', PATH_MAPS,'. skipping.'))
 		next
 	}
-
-# filter stations by dates
-stations_available <- station_locations %>%
-	filter(start_date<simdate) %>%
-	filter(end_date>simdate)
-
-# download station swe data for the year of simulation date and merge with station locations
-station_data=get_stationswe_data(yr,stations_available,'snotel')
-
-# --- get modscag NRT image or use archived modscag images
-simfsca <- get_modscag_data(doy,yr,'historic',PATH_FSCA,RESO,EXTENT_WEST,EXTENT_EAST,EXTENT_SOUTH,EXTENT_NORTH)
-simfscafilename=paste0(PATH_FSCA,'/modscag_fsca_',yr,doy,'.tif')
-simfsca=raster(simfscafilename)
-# plot(simfsca,zlim=c(0,100))
-
-## ----- subset snotel data for simulation date
-snoteltoday <-
-	station_data %>%
-	dplyr::select(-snwd,-swe) %>%
-	dplyr::filter_(~dte == simdate) %>%
-	dplyr::filter(!is.na(snotel)) %>% #i think files get downloaded with no data so they stay in the joined files
-	mutate(
-		yr=strftime(dte,'%Y'),
-		doy=strftime(dte,'%j'),
-		yrdoy=strftime(dte,'%Y%j'),
-		dy=strftime(dte,'%d'))
-
-## save current snotel as spatial vector file
-snoteltoday.sp=data.frame(snoteltoday)
-sp::coordinates(snoteltoday.sp)=~Longitude+Latitude
-proj4string(snoteltoday.sp)='+proj=longlat +datum=WGS84'
-snotelfilename=paste0(PATH_OUTPUT,'/snotel-',strftime(simdate,'%d%b%Y'),'.gpkg')
-if(!file.exists(snotelfilename)){
-  writeOGR(snoteltoday.sp,dsn=snotelfilename,layer='snotel_swe',driver='GPKG',overwrite_layer=TRUE)
-}
-
-
-# ## ---- merge snotelrecon data with snotel swe data and phv data
-newnames=c(names(snoteltoday.sp),'fsca')
-snotel_snow <-
-	raster::extract(simfsca,snoteltoday.sp,sp=T) %>%
-	as.data.frame() %>%
-	tbl_df %>%
-	dplyr::select(-Longitude,-Latitude) %>%
-	setNames(newnames) %>%
-	mutate_if(is.factor,as.character)
-
-swedata=inner_join(snotel_snow,phvsnotel,by=c('Station_ID','Site_ID'))
-
-## ------ combine fsca with phv data
-predictdF <- bind_cols(ucophv,as.data.frame(simfsca) %>% setNames('fsca')) %>% tbl_df
-
-# ucophvsc <- scale(ucophv)
-# avg=attr(ucophvsc,'scaled:center')
-# std=attr(ucophvsc,'scaled:scale')
-# varind=which(names(phvsnotel) %in% names(ucophvsc))
-# for(i in varind){
-#   ucoind=which(names(avg) %in% names(phvsnotel)[i])
-#   phvsnotel[,i]=(phvsnotel[,i]-avg[ucoind])/std[ucoind]
-# }
-
-## ---- merge today's snotel data and phv data 
+	
+	# filter stations by dates
+	stations_available <- station_locations %>%
+		filter(start_date<simdate) %>%
+		filter(end_date>simdate)
+	
+	# download station swe data for the year of simulation date and merge with station locations
+	station_data=get_stationswe_data(yr,stations_available,'snotel')
+	
+	# --- get modscag NRT image or use archived modscag images
+	simfsca <- get_modscag_data(doy,yr,'historic',PATH_FSCA,RESO,EXTENT_WEST,EXTENT_EAST,EXTENT_SOUTH,EXTENT_NORTH)
+	simfscafilename=paste0(PATH_FSCA,'/modscag_fsca_',yr,doy,'.tif')
+	simfsca=raster(simfscafilename)
+	# plot(simfsca,zlim=c(0,100))
+	
+	## ----- subset snotel data for simulation date
+	snoteltoday <-
+		station_data %>%
+		dplyr::select(-snwd,-swe) %>%
+		dplyr::filter_(~dte == simdate) %>%
+		dplyr::filter(!is.na(snotel)) %>% #i think files get downloaded with no data so they stay in the joined files
+		mutate(
+			yr=strftime(dte,'%Y'),
+			doy=strftime(dte,'%j'),
+			yrdoy=strftime(dte,'%Y%j'),
+			dy=strftime(dte,'%d'))
+	
+	## save current snotel as spatial vector file
+	snoteltoday.sp=data.frame(snoteltoday)
+	sp::coordinates(snoteltoday.sp)=~Longitude+Latitude
+	proj4string(snoteltoday.sp)='+proj=longlat +datum=WGS84'
+	snotelfilename=paste0(PATH_OUTPUT,'/snotel-',strftime(simdate,'%d%b%Y'),'.gpkg')
+	if(!file.exists(snotelfilename)){
+		writeOGR(snoteltoday.sp,dsn=snotelfilename,layer='snotel_swe',driver='GPKG',overwrite_layer=TRUE)
+	}
+	
+	
+	# ## ---- merge snotelrecon data with snotel swe data and phv data
+	newnames=c(names(snoteltoday.sp),'fsca')
+	snotel_snow <-
+		raster::extract(simfsca,snoteltoday.sp,sp=T) %>%
+		as.data.frame() %>%
+		tbl_df %>%
+		dplyr::select(-Longitude,-Latitude) %>%
+		setNames(newnames) %>%
+		mutate_if(is.factor,as.character)
+	
+	swedata=inner_join(snotel_snow,phvsnotel,by=c('Station_ID','Site_ID'))
+	
+	## ---- merge today's snotel data and phv data 
 doidata=inner_join(snoteltoday,phvsnotel,by=c('Station_ID','Site_ID')) %>%
 	inner_join(snotel_snow) %>%
 	mutate(fsca=ifelse(fsca>100 & snotel>0,100,fsca)) %>%
 	mutate(fsca=ifelse(fsca==0 & snotel>0,15,fsca)) %>%
-	filter(fsca<=100) %>%
-	mutate(swe=snotel)#*fsca/100)
+	filter(fsca<=100)
 
 ## fit glmnet model ----
 myformula <- snotel~lon+lat+dem+eastness+northness+dist2coast+dist2contdiv+regionaleastness+regionalnorthness+regionalzness+zness+fsca
 mdl <- gnet_phvfsca(doidata,myformula)
+
+## combine fsca with phv data for prediction ----
+predictdF <- bind_cols(ucophv,as.data.frame(simfsca) %>% setNames('fsca')) %>% tbl_df
 
 ## predict on swe for domain and mask with fsca and watermask ----
 yhat=predict(mdl,predictdF,na.action=na.pass)
