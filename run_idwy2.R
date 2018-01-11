@@ -11,14 +11,14 @@ library(rasterVis)
 
 
 # constants ----
-DATEFILE = 'ucrb_2018dates.csv'
-RUNNAME = 'ucrb'
-SNOW_VAR = 'rcn'
+DATEFILE = 'Wyoming_2018dates.csv'
+RUNNAME = 'idwy'
+SNOW_VAR = 'fsca'
 PHV_VARS = ~lon+lat+dem+eastness+northness+dist2coast+dist2contdiv+regionaleastness+regionalnorthness+regionalzness+zness #don't forget the ~
-EXTENT_NORTH = 43.75
-EXTENT_EAST = -104.125
-EXTENT_SOUTH = 33
-EXTENT_WEST = -112.25
+EXTENT_NORTH = 49
+EXTENT_EAST = -106.15
+EXTENT_SOUTH = 42
+EXTENT_WEST = -117.25
 RESO = 15/3600
 
 # input setup ----
@@ -39,6 +39,20 @@ dir.create(path=PATH_MAPS,rec=TRUE)
 
 # import watermask ----
 watermask <- raster(paste0(RUNNAME,'/data/gis/',toupper(RUNNAME),'_watermask.tif'))
+
+# check recondata domain ----
+if(SNOW_VAR=='rcn'){
+	fn=dir(PATH_RCNDOWNLOAD,glob2rx('^recondata*.nc$'),full.name=T)[1]#just check the first file
+	if(is.na(fn)){
+		stop('there are no recondata files in the PATH_RCNDOWNLOAD location you specified')
+	} else {
+		testr=stack(fn)[[1]]
+		correct_recondata <- rgeos::gContainsProperly(as(extent(testr), "SpatialPolygons"), as(extent(watermask), "SpatialPolygons"))
+		if(!correct_recondata){
+			stop('your recondata doesn\'t fully contain the domain defined for the regression. perhaps you mean to specify a different rcn directory or predict with fsca instead of rcn?')
+		}
+	}
+}
 
 # get station metadata ----
 all_available_stations <- get_inv('snotel')
@@ -83,32 +97,32 @@ for(irow in 1:nrow(whichdates)){
 	mth=strftime(simdate,'%m')
 	dy=strftime(simdate,'%d')
 	datestr=paste0(yr,mth,dy)
-	
+
 	print(simdate)
-	
+
 	# this checks for a map output that has swe and fsca side by side. remove this file if you want to make a new swe estimate
-	mapfn=paste0(PATH_MAPS,'/maps_',yr,mth,dy,'.png')
+	mapfn=paste0(PATH_MAPS,'/phv',SNOW_VAR,'_maps_',yr,mth,dy,'.png')
 	fe.logical=file.exists(mapfn)
 	if(fe.logical) {
 		print(paste0('map exists in ', PATH_MAPS,'. skipping.'))
 		next
 	}
-	
+
 	## filter stations by dates ----
 	stations_available <- station_locations %>%
 		filter(start_date<simdate) %>%
 		filter(end_date>simdate)
-	
+
 	## download station swe data for the year of simulation date and merge with station locations ----
 	# uses gethistoric.sh from https://www.wcc.nrcs.usda.gov/web_service/NWCC_Web_Report_Scripting.txt to download snotel data. this shell script comes with the package
 	station_data=get_stationswe_data(yr,stations_available,'snotel')
-	
+
 	## get historical modscag image ----
 	# get historical modscag image or use archived modscag images. see 'use_package' vignette
 	simfsca <- get_modscag_data(doy,yr,'NRT',PATH_FSCA,RESO,EXTENT_WEST,EXTENT_EAST,EXTENT_SOUTH,EXTENT_NORTH)
 	# Make sure fsca was properly retrieved!
 	# plot(simfsca,zlim=c(0,100))
-	
+
 	## subset snotel data for simulation date ----
 	snoteltoday <-
 		station_data %>%
@@ -120,7 +134,7 @@ for(irow in 1:nrow(whichdates)){
 			doy=strftime(dte,'%j'),
 			yrdoy=strftime(dte,'%Y%j'),
 			dy=strftime(dte,'%d'))
-	
+
 	## save current snotel as spatial vector file ----
 	snoteltoday.sp=data.frame(snoteltoday)
 	sp::coordinates(snoteltoday.sp)=~Longitude+Latitude
@@ -129,16 +143,16 @@ for(irow in 1:nrow(whichdates)){
 	if(!file.exists(snotelfilename)){
 		writeOGR(snoteltoday.sp,dsn=snotelfilename,layer='snotel_swe',driver='GPKG',overwrite_layer=TRUE)
 	}
-	
+
 	## setup the modeling data ----
 	modelingdFs <- setup_modeldata(snoteltoday.sp,snoteltoday,phvsnotel,simfsca,SNOW_VAR,PHV_VARS,PATH_RCNDOWNLOAD)
 	doidata=modelingdFs[[1]]
 	predictdF=modelingdFs[[2]]
 	myformula=modelingdFs[[3]]
-	
+
 	## fit glmnet model ----
 	mdl <- gnet_phvfsca(doidata,myformula)
-	
+
 	## predict on swe for domain and mask with fsca and watermask ----
 	yhat=predict(mdl,predictdF,na.action=na.pass)
 	simyhat=simfsca
@@ -148,11 +162,11 @@ for(irow in 1:nrow(whichdates)){
 	simyhat <- mask(simyhat,simfsca,maskvalue=235,updatevalue=235)
 	simyhat <- mask(simyhat,simfsca,maskvalue=250,updatevalue=250)
 	simyhat <- mask(simyhat,simfsca,maskvalue=0,updatevalue=0)
-	
+
 	## save prediction to file ----
 	outfile=paste0('phv',SNOW_VAR,'_',yr,mth,dy,'.tif')
 	writeRaster(simyhat,file.path(PATH_OUTPUT,outfile),NAflag=-99,overwrite=T)
-	
+
 	## create map of fsca and swe and save as image ----
 	gf <-
 		rasterVis::gplot(simfsca)+
@@ -162,8 +176,8 @@ for(irow in 1:nrow(whichdates)){
 		theme_cowplot(font_size=14)+
 		theme(axis.line.x=element_line(color=NA),
 					axis.line.y=element_line(color=NA))
-	
-	
+
+
 	maxswe=max(simyhat[simyhat<200])
 	gs <-
 		rasterVis::gplot(simyhat)+
@@ -173,20 +187,20 @@ for(irow in 1:nrow(whichdates)){
 		theme_cowplot(font_size=14)+
 		theme(axis.line.x=element_line(color=NA),
 					axis.line.y=element_line(color=NA))
-	
+
 	pg <- cowplot::plot_grid(gf,gs,nrow=2,align='hv')
 	save_plot(plot=pg,filename=paste0(PATH_MAPS,'/phv',SNOW_VAR,'_maps_',yr,mth,dy,'.png'),base_height = 6)
-	
+
 	## save coefficients from model and write to file ----
 	coef_dF <-
 		as.data.frame(as.matrix((coef(mdl)))) %>%
 		mutate(predictor=rownames(.)) %>%
 		setNames(c('coefficient','predictor'))
-	
+
 	write_tsv(format(coef_dF,sci=FALSE),
 						path=paste0(PATH_OUTPUT,'/phv',SNOW_VAR,'_coefs_',datestr,'.txt')
 	)
-	
+
 	## cross validation statistics  ----
 	cl=NULL
 	allmdls <-
@@ -194,7 +208,7 @@ for(irow in 1:nrow(whichdates)){
 		group_by(dte) %>%
 		do({
 			#crossv_mc uses random sampling (with replacement?) to crossvalidate. loocv is also possible with crossv_kfold(...,k=nrow(.)) but it will take much longer. Also, r2 needs to be calculated outside this loop because currenlty the skill metric can't caluclate r2 with just 1 test point
-			datsplit <- 
+			datsplit <-
 				crossv_mc(.,n=30,test=0.1)	%>%
 				mutate(
 					phvfsca_obj_glmmdl=map(train,gnet_phvfsca,myformula,cl),
@@ -202,8 +216,8 @@ for(irow in 1:nrow(whichdates)){
 					phvfsca_pctmae_glmmdl=map2_dbl(phvfsca_obj_glmmdl,test,mypctmae)
 				)
 		})
-	
-	
+
+
 	stat_r2 <-
 		allmdls %>%
 		unnest(phvfsca_r2_glmmdl,.drop=T) %>%
@@ -213,10 +227,10 @@ for(irow in 1:nrow(whichdates)){
 			uci_r2=avg_r2+1.96*sd_r2/sqrt(n()),
 			lci_r2=avg_r2-1.96*sd_r2/sqrt(n())
 		)
-	
+
 	write_tsv(stationsweRegression::format_numeric(stat_r2,sci=FALSE),
 						path=paste0(PATH_OUTPUT,'/phv',SNOW_VAR,'_r2_',datestr,'.txt'))
-	
+
 	stat_pctmae <-
 		allmdls %>%
 		unnest(phvfsca_pctmae_glmmdl,.drop=T) %>%
@@ -226,10 +240,10 @@ for(irow in 1:nrow(whichdates)){
 			uci_pctmae=avg_pctmae+1.96*sd_pctmae/sqrt(n()),
 			lci_pctmae=avg_pctmae-1.96*sd_pctmae/sqrt(n())
 		)
-	
+
 	write_tsv(format_numeric(stat_pctmae,sci=FALSE),
 						path=paste0(PATH_OUTPUT,'/phv',SNOW_VAR,'_pctmae_',datestr,'.txt'))
-	
+
 }
 
 
@@ -251,4 +265,3 @@ pctmae_df <- suppressMessages(
 )
 write_tsv(pctmae_df,
 					path=file.path(PATH_OUTPUT,paste0('phv',SNOW_VAR,'_pctmae_combined.txt')))
-
