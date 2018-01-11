@@ -3,6 +3,7 @@
 .RData
 .Ruserdata
 modscagdownloads/
+rcn_ucrb/
 data/
 output/
 *.tif
