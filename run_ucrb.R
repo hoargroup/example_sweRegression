@@ -9,12 +9,12 @@ library(cowplot)
 library(viridis)
 library(rasterVis)
 
-
 # constants ----
 DATEFILE = 'ucrb_2018dates.csv'
 RUNNAME = 'ucrb'
-SNOW_VAR = 'rcn'
-PHV_VARS = ~lon+lat+dem+eastness+northness+dist2coast+dist2contdiv+regionaleastness+regionalnorthness+regionalzness+zness #don't forget the ~
+SNOW_VAR = 'rcn'#rcn or fsca
+PILLOW_NETWORK = 'snotel' #cdec (for CA) or snotel (for other locations)
+PHV_VARS = ~lon+lat+dem+eastness+northness+dist2coast+dist2contdiv+regionaleastness+regionalnorthness+regionalzness+zness #don't forget the +'s and ~
 EXTENT_NORTH = 43.75
 EXTENT_EAST = -104.125
 EXTENT_SOUTH = 33
@@ -41,7 +41,7 @@ dir.create(path=PATH_MAPS,rec=TRUE)
 watermask <- raster(paste0(RUNNAME,'/data/gis/',toupper(RUNNAME),'_watermask.tif'))
 
 # get station metadata ----
-all_available_stations <- get_inv('snotel')
+all_available_stations <- get_inv(PILLOW_NETWORK)
 # filter stations by bounding box using latitude and longitude.
 station_locations <- all_available_stations %>%
 	filter(Latitude>=EXTENT_SOUTH, Latitude<=EXTENT_NORTH, Longitude<= EXTENT_EAST, Longitude>= EXTENT_WEST)
@@ -66,7 +66,8 @@ phvsnotel=raster::extract(phvstack,snotellocs,sp=T)
 phvsnotel=phvsnotel %>%
 	as.data.frame() %>%
 	tbl_df %>%
-	dplyr::select(Station_ID,Site_ID,site_name,dem:zness)
+	mutate_if(is.factor,as.character) %>% 
+	dplyr::select(Site_ID,site_name,dem:zness)
 
 # import list of dates to simulate ----
 whichdates <- import_dates(DATEFILE)
@@ -75,7 +76,7 @@ whichdates <- import_dates(DATEFILE)
 # run estimate ----
 # iterate through each date in the datefile to estimate the distribution of SWE
 irow=1
-for(irow in 1:nrow(whichdates)){
+for(irow in nrow(whichdates):1){#simulate in reverse will download less data
 	# setup the date variables
 	simdate=whichdates$dte[irow]
 	yr=strftime(simdate,'%Y')
@@ -101,7 +102,7 @@ for(irow in 1:nrow(whichdates)){
 	
 	## download station swe data for the year of simulation date and merge with station locations ----
 	# uses gethistoric.sh from https://www.wcc.nrcs.usda.gov/web_service/NWCC_Web_Report_Scripting.txt to download snotel data. this shell script comes with the package
-	station_data=get_stationswe_data(yr,stations_available,'snotel')
+	station_data=get_stationswe_data(stations_available,PILLOW_NETWORK)
 	
 	## get historical modscag image ----
 	# get historical modscag image or use archived modscag images. see 'use_package' vignette
@@ -112,6 +113,7 @@ for(irow in 1:nrow(whichdates)){
 	## subset snotel data for simulation date ----
 	snoteltoday <-
 		station_data %>%
+		filter(!is.na(Longitude),!is.na(Latitude)) %>% 
 		dplyr::select(-snwd,-swe) %>%
 		dplyr::filter_(~dte == simdate) %>%
 		dplyr::filter(!is.na(snotel)) %>% #i think files get downloaded with no data so they stay in the joined files. need to remove these for the statistical model
@@ -131,7 +133,7 @@ for(irow in 1:nrow(whichdates)){
 	}
 	
 	## setup the modeling data ----
-	modelingdFs <- setup_modeldata(snoteltoday.sp,snoteltoday,phvsnotel,simfsca,SNOW_VAR,PHV_VARS,PATH_RCNDOWNLOAD)
+	modelingdFs <- setup_modeldata(snoteltoday.sp,phvsnotel,simfsca,SNOW_VAR,PHV_VARS,PATH_RCNDOWNLOAD)
 	doidata=modelingdFs[[1]]
 	predictdF=modelingdFs[[2]]
 	myformula=modelingdFs[[3]]
