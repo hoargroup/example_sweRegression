@@ -22,7 +22,7 @@ EXTENT_WEST = -112.25
 RESO = 15/3600
 
 # input setup ----
-PATH_MODSCAGDOWNLOAD='modscagdownloads'#always need this
+PATH_MODSCAGDOWNLOAD='modscagdownloads/NRT'#always need this. path should point 1 level above /yr/doy/*.tif
 PATH_RCNDOWNLOAD='rcn_ucrb'#don't need this if predicting with fsca instead of rcn
 PATH_PHV=paste0(RUNNAME,'/data/phv')
 
