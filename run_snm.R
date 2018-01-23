@@ -2,19 +2,19 @@ library(stationsweRegression)
 
 # constants ----
 DATEFILE = 'ucrb_2018dates.csv'
-RUNNAME = 'ucrb'
+RUNNAME = 'snm'
 SNOW_VAR = 'rcn'#rcn or fsca
-PILLOW_NETWORK = 'snotel' #cdec (for CA) or snotel (for other locations)
-PHV_VARS = ~lon+lat+dem+eastness+northness+regionaleastness+regionalnorthness+regionalzness+zness+dist2coast+dist2contdiv #don't forget the +'s and ~
-EXTENT_NORTH = 43.75
-EXTENT_EAST = -104.125
-EXTENT_SOUTH = 33
-EXTENT_WEST = -112.25
+PILLOW_NETWORK = 'cdec' #cdec (for CA) or snotel (for other locations)
+PHV_VARS = ~lon+lat+dem+eastness+northness+regionaleastness+regionalnorthness+regionalzness+zness #don't forget the +'s and ~
+EXTENT_NORTH = 41.375
+EXTENT_EAST = -117.625
+EXTENT_SOUTH = 35.125
+EXTENT_WEST = -122.375
 RESO = 15/3600
 
 # input setup ----
 PATH_MODSCAGDOWNLOAD='modscagdownloads/NRT'#always need this. path should point 1 level above /yr/doy/*.tif
-PATH_RCNDOWNLOAD='rcn_ucrb'#don't need this if predicting with fsca instead of rcn
+PATH_RCNDOWNLOAD='rcn_snm'#don't need this if predicting with fsca instead of rcn
 PATH_PHV=paste0(RUNNAME,'/data/phv')
 
 # output directories ----
@@ -140,7 +140,7 @@ for(irow in nrow(whichdates):1){#simulate in reverse will download less data
 	## save prediction to file ----
 	outfile=paste0('phv',SNOW_VAR,'_',yr,mth,dy,'.tif')
 	writeRaster(simyhat,file.path(PATH_OUTPUT,outfile),NAflag=-99,overwrite=T)
-	
+		
 	## create map of fsca and swe and save as image ----
 	gf <-
 		rasterVis::gplot(simfsca)+
