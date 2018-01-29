@@ -14,13 +14,14 @@ RESO = 15/3600
 
 # input setup ----
 PATH_MODSCAGDOWNLOAD='modscagdownloads/NRT'#always need this. path should point 1 level above /yr/doy/*.tif
+MODSCAG_FILE = 'snow_fraction_canadj'
 PATH_RCNDOWNLOAD='rcn_ucrb'#don't need this if predicting with fsca instead of rcn
 PATH_PHV=paste0(RUNNAME,'/data/phv')
 
 # output directories ----
 PATH_SNOTEL=file.path(RUNNAME,'data/snoteldownloads')
 PATH_FSCA=file.path(RUNNAME,'data/fsca')
-PATH_OUTPUT=file.path(RUNNAME,'output/w_obscuredstations')
+PATH_OUTPUT=file.path(RUNNAME,'output/snow_fraction_canadj_output')
 PATH_MAPS=file.path(PATH_OUTPUT,'swe_fsca_sidexside')
 PATH_XVAL=file.path(PATH_OUTPUT,'crossval_stats_dates')
 
@@ -93,7 +94,7 @@ for(irow in nrow(whichdates):1){#simulate in reverse will download less data
 	
 	## get historical modscag image ----
 	# get historical modscag image or use archived modscag images. see 'use_package' vignette
-	simfsca <- get_modscag_data(doy,yr,'NRT',PATH_FSCA,RESO,EXTENT_WEST,EXTENT_EAST,EXTENT_SOUTH,EXTENT_NORTH)
+	simfsca <- get_modscag_data(doy,yr,'NRT',PATH_FSCA,MODSCAG_FILE,RESO,EXTENT_WEST,EXTENT_EAST,EXTENT_SOUTH,EXTENT_NORTH)
 	# Make sure fsca was properly retrieved!
 	# plot(simfsca,zlim=c(0,100))
 	
