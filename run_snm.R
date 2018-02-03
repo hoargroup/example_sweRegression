@@ -10,7 +10,7 @@ EXTENT_NORTH = 41.375
 EXTENT_EAST = -117.625
 EXTENT_SOUTH = 35.125
 EXTENT_WEST = -122.375
-RESO = 15/3600
+RESO = 15/3600 #resolution in degrees
 
 # input setup ----
 PATH_MODSCAGDOWNLOAD='modscagdownloads/NRT'#always need this. path should point 1 level above /yr/doy/*.tif
@@ -21,7 +21,7 @@ PATH_PHV=paste0(RUNNAME,'/data/phv')
 # output directories ----
 PATH_SNOTEL=file.path(RUNNAME,'data/snoteldownloads')
 PATH_FSCA=file.path(RUNNAME,'data/fsca')
-PATH_OUTPUT=file.path(RUNNAME,'output/w_obscuredstations')
+PATH_OUTPUT=file.path(RUNNAME,'output/w_rcn')
 PATH_MAPS=file.path(PATH_OUTPUT,'swe_fsca_sidexside')
 PATH_XVAL=file.path(PATH_OUTPUT,'crossval_stats_dates')
 
@@ -48,7 +48,7 @@ proj4string(snotellocs)='+proj=longlat +datum=WGS84'
 
 # get phv variables ----
 # get phv variables for entire domain from /data/phv folder and convert to a dataframe
-# see use_package and Make_PHV_Inputs vignette
+# see use_package and Make_PHV_Inputs vignettes
 phvfilenames=dir(PATH_PHV,pattern='.tif$',full.names=TRUE)
 phvstack=stack(phvfilenames)
 names(phvstack) <- sapply(strsplit(names(phvstack),'_'),'[',2)
@@ -58,7 +58,6 @@ ucophv <- as.data.frame(phvstack_scaled)
 #  extract the phv variable values for the station locations ----
 phvsnotel=raster::extract(phvstack_scaled,snotellocs,sp=T)
 phvsnotel=phvsnotel %>%
-	as.data.frame() %>%
 	tbl_df %>%
 	mutate_if(is.factor,as.character) %>% 
 	dplyr::select(Site_ID,site_name,dem:zness)
@@ -69,7 +68,7 @@ whichdates <- import_dates(DATEFILE) %>% arrange(dte)
 
 # run estimate ----
 # iterate through each date in the datefile to estimate the distribution of SWE
-irow=3
+irow=1
 for(irow in nrow(whichdates):1){#simulate in reverse will download less data
 	# setup the date variables
 	simdate=whichdates$dte[irow]
@@ -102,22 +101,12 @@ for(irow in nrow(whichdates):1){#simulate in reverse will download less data
 	snoteltoday <-
 		station_data %>%
 		filter(!is.na(Longitude),!is.na(Latitude)) %>% 
-		dplyr::filter_(~dte == simdate) %>%
-		dplyr::filter(!is.na(swe)) %>% #i think files get downloaded with no data so they stay in the joined files. need to remove these for the statistical model
-		mutate(
-			yr=strftime(dte,'%Y'),
-			doy=strftime(dte,'%j'),
-			yrdoy=strftime(dte,'%Y%j'),
-			dy=strftime(dte,'%d'))
+		dplyr::filter_(~dte == simdate)# 
 	
-	## save current snotel as spatial vector file ----
+	## snotel as spatial vector file ----
 	snoteltoday.sp=data.frame(snoteltoday)
 	sp::coordinates(snoteltoday.sp)=~Longitude+Latitude
 	proj4string(snoteltoday.sp)='+proj=longlat +datum=WGS84'
-	snotelfilename=paste0(PATH_OUTPUT,'/pillow-',strftime(simdate,'%d%b%Y'),'.gpkg')
-	if(!file.exists(snotelfilename)){
-		writeOGR(snoteltoday.sp,dsn=snotelfilename,layer='pillow_swe',driver='GPKG',overwrite_layer=TRUE)
-	}
 	
 	## setup the modeling data ----
 	modelingdFs <- setup_modeldata(snoteltoday.sp,phvsnotel,simfsca,SNOW_VAR,PHV_VARS,PATH_RCNDOWNLOAD)
