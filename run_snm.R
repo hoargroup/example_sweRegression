@@ -128,7 +128,7 @@ for(irow in nrow(whichdates):1){#simulate in reverse will download less data
 	simyhat <- mask(simyhat,simfsca,maskvalue=0,updatevalue=0)
 	
 	## save prediction to file ----
-	outfile=paste0('phv',SNOW_VAR,'_',yr,mth,dy,'.tif')
+	outfile=paste0('phv',SNOW_VAR,'_',datestr,'.tif')
 	writeRaster(simyhat,file.path(PATH_OUTPUT,outfile),NAflag=-99,overwrite=T)
 		
 	## create map of fsca and swe and save as image ----
