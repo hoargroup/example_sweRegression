@@ -6,6 +6,11 @@ require(ncdf4)
 library(tidyverse)
 
 # USER INPUT ----
+## file management
+# point recon_grads to a folder that contains the yearly folders in which swe.dat exists. folder should be absolute or relative to .Rproj file.
+# output files will be local to the .Rproj file
+recon_grads='recon_grads' #'/Volumes/hydroProjects/SWE/Sierras/Spatial_SWE/SWE_SNODIS'
+
 ## Sierra Nevada reconstruction
 domain <- 'snm'
 numcols <- 1140
@@ -41,13 +46,13 @@ readgrads=function(t,fid=fid){
 }
 
 # GO TIME ----
-## (if there are other folders than the year folders in 'recon_grads' this will fail)
+## (if there are other folders than the year folders in recon_grads this will fail)
 tifdir <- 'recon_tif'
 ncdir <- 'recon_nc'
 dir.create(tifdir)
 dir.create(ncdir)
 
-fns <- dir('recon_grads',full.names=T)
+fns <- dir(recon_grads,full.names=T)
 dns <- fns[file.info(fns)$isdir]
 
 yrdir <- dns[1]
@@ -72,16 +77,16 @@ for(yrdir in dns){
   snames <- strftime(dates,'%Y%m%d')
   names(s) <- snames
   
-  # ## write geotifs
-  # writeRaster(x=s,filename=file.path(tifdir,paste0('recon_',domain,'.tif')), NAflag=-99, bylayer=T, suffix='names')
-  # 
-  # ## write netcdf. writeRaster will do most of the heavy lifting
-  # fn_w <- paste0('recondata_',domain,'_',yr,'.nc')
-  # writeRaster(x=s,filename=file.path(ncdir,fn_w),NAflag=-99,varname='swe',varunit='meters',longname='snow water equivalent (m)',xname='longitude',yname='latitude',zname='time',zunit='yyyymmdd', overwrite=T)
-  # #but it doesn't write the time dimension properly for some reason
-  # ncid=nc_open(file.path(ncdir,fn_w),write=T)
-  # ncvar_put(ncid,varid='time',vals=as.numeric(snames))
-  # nc_close(ncid)
+  ## write geotifs
+  writeRaster(x=s,filename=file.path(tifdir,paste0('recon_',domain,'.tif')), NAflag=-99, bylayer=T, suffix='names')
+
+  ## write netcdf. writeRaster will do most of the heavy lifting
+  fn_w <- paste0('recondata_',domain,'_',yr,'.nc')
+  writeRaster(x=s,filename=file.path(ncdir,fn_w),NAflag=-99,varname='swe',varunit='meters',longname='snow water equivalent (m)',xname='longitude',yname='latitude',zname='time',zunit='yyyymmdd', overwrite=T)
+  #but it doesn't write the time dimension properly for some reason
+  ncid=nc_open(file.path(ncdir,fn_w),write=T)
+  ncvar_put(ncid,varid='time',vals=as.numeric(snames))
+  nc_close(ncid)
 }
 
 
