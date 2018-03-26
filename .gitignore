@@ -14,6 +14,7 @@ ucrb/preprocess_phv/*
 .DS_Store
 Icon
 get_NRTmodscag.sh
+get_HISTORICmodscag.sh
 Icon
 rcn_snm/
 westernUS_files
