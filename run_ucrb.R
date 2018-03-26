@@ -3,9 +3,10 @@ library(stationsweRegression)
 # constants ----
 DATEFILE = 'ucrb_2018dates.csv'
 RUNNAME = 'ucrb'
+SIMNAME = 'snow_fraction_output' #change this to separate different simulations
 SNOW_VAR = 'rcn'#rcn or fsca
 PILLOW_NETWORK = 'snotel' #cdec (for CA) or snotel (for other locations)
-PHV_VARS = ~lon+lat+dem+eastness+northness+regionaleastness+regionalnorthness+regionalzness+zness+dist2coast+dist2contdiv #don't forget the +'s and ~
+PHV_VARS = ~lon+lat+dem+eastness+northness+regionaleastness+regionalnorthness+regionalzness+zness+dist2coast#+dist2contdiv #don't forget the +'s and ~
 EXTENT_NORTH = 43.75
 EXTENT_EAST = -104.125
 EXTENT_SOUTH = 33
@@ -13,15 +14,17 @@ EXTENT_WEST = -112.25
 RESO = 15/3600 #resolution in degrees
 
 # input setup ----
+MODSCAG_TYPE = 'historic'# 'NRT' or 'historic' 
 PATH_MODSCAGDOWNLOAD='modscagdownloads/NRT'#always need this. path should point 1 level above /yr/doy/*.tif
-MODSCAG_FILE = 'snow_fraction_canadj'
+MODSCAG_FILE = 'snow_fraction'
+FVEG_CORRECTION = FALSE #don't use snow_fraction_canadj and TRUE together
 PATH_RCNDOWNLOAD='rcn_ucrb'#don't need this if predicting with fsca instead of rcn
 PATH_PHV=paste0(RUNNAME,'/data/phv')
 
 # output directories ----
 PATH_SNOTEL=file.path(RUNNAME,'data/snoteldownloads')
 PATH_FSCA=file.path(RUNNAME,'data/fsca')
-PATH_OUTPUT=file.path(RUNNAME,'output/snow_fraction_canadj_output')
+PATH_OUTPUT=file.path(RUNNAME,'output',SIMNAME)
 PATH_MAPS=file.path(PATH_OUTPUT,'swe_fsca_sidexside')
 PATH_XVAL=file.path(PATH_OUTPUT,'crossval_stats_dates')
 
@@ -93,7 +96,8 @@ for(irow in nrow(whichdates):1){#simulate in reverse will download less data
 	
 	## get historical modscag image ----
 	# get historical modscag image or use archived modscag images. see 'use_package' vignette
-	simfsca <- get_modscag_data(doy,yr,'NRT',PATH_FSCA,MODSCAG_FILE,RESO,EXTENT_WEST,EXTENT_EAST,EXTENT_SOUTH,EXTENT_NORTH)
+	simfsca <- get_modscag_data(doy,yr,MODSCAG_TYPE,PATH_FSCA,MODSCAG_FILE,FVEG_CORRECTION,RESO,EXTENT_WEST,EXTENT_EAST,EXTENT_SOUTH,EXTENT_NORTH)
+	
 	# Make sure fsca was properly retrieved!
 	# plot(simfsca,zlim=c(0,100))
 	
@@ -102,7 +106,6 @@ for(irow in nrow(whichdates):1){#simulate in reverse will download less data
 		station_data %>%
 		filter(!is.na(Longitude),!is.na(Latitude)) %>% 
 		dplyr::filter_(~dte == simdate)# %>%
-	
 	
 	## snotel as spatial vector file ----
 	snoteltoday.sp=data.frame(snoteltoday)
