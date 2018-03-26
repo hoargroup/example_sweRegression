@@ -1,0 +1,21 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(raster)
+library(tidyverse)
+```
+
+```{r}
+r=raster('snm/output/w_rcn/phvrcn_20180319.tif')
+watersheds = raster('snm/data/gis/cad_watersheds_msk.tif')
+
+r <- crop(r,watersheds) %>% mask(watersheds)
+r[r>100]=NA
+plot(r)
+cellStats(r,'sum') * 500^2 / 1000^3
+
+```
+
