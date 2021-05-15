@@ -61,7 +61,7 @@ ucophv <- as.data.frame(phvstack_scaled)
 #  extract the phv variable values for the station locations ----
 phvsnotel=raster::extract(phvstack_scaled,snotellocs,sp=T)
 phvsnotel=phvsnotel %>%
-	tbl_df %>%
+	as_tibble %>%
 	mutate_if(is.factor,as.character) %>% 
 	dplyr::select(Site_ID,site_name,dem:zness)
 
@@ -105,7 +105,7 @@ for(irow in nrow(whichdates):1){#simulate in reverse will download less data
 	snoteltoday <-
 		station_data %>%
 		filter(!is.na(Longitude),!is.na(Latitude)) %>% 
-		dplyr::filter_(~dte == simdate)# 
+		dplyr::filter(dte == {{simdate}})# 
 	
 	## snotel as spatial vector file ----
 	snoteltoday.sp=data.frame(snoteltoday)
