@@ -172,7 +172,7 @@ for(irow in nrow(whichdates):1){#simulate in reverse will download less data
 		setNames(c('coefficient','predictor'))
 	
 	write_tsv(format(coef_dF,sci=FALSE),
-						path=paste0(PATH_OUTPUT,'/phv',SNOW_VAR,'_coefs_',datestr,'.txt')
+						file=paste0(PATH_OUTPUT,'/phv',SNOW_VAR,'_coefs_',datestr,'.txt')
 	)
 	
 	## cross validation statistics  ----
@@ -199,7 +199,7 @@ for(irow in nrow(whichdates):1){#simulate in reverse will download less data
 		)
 	
 	write_tsv(stationsweRegression::format_numeric(stat_r2,sci=FALSE),
-						path=file.path(PATH_XVAL,paste0('phv',SNOW_VAR,'_r2_',datestr,'.txt')))
+						file=file.path(PATH_XVAL,paste0('phv',SNOW_VAR,'_r2_',datestr,'.txt')))
 	
 	stat_pctmae <-
 		allmdls %>%
@@ -212,7 +212,7 @@ for(irow in nrow(whichdates):1){#simulate in reverse will download less data
 		)
 	
 	write_tsv(stationsweRegression::format_numeric(stat_pctmae,sci=FALSE),
-						path=file.path(PATH_XVAL,paste0('phv',SNOW_VAR,'_pctmae_',datestr,'.txt')))
+						file=file.path(PATH_XVAL,paste0('phv',SNOW_VAR,'_pctmae_',datestr,'.txt')))
 	
 }
 
@@ -224,7 +224,7 @@ r2_df <- suppressMessages(
 	map_df(.x=r2_fns,.f=read_tsv)
 )
 write_tsv(stationsweRegression::format_numeric(r2_df,sci=FALSE),
-					path=file.path(PATH_OUTPUT,paste0('phv',SNOW_VAR,'_r2_crossval.txt')))
+					file=file.path(PATH_OUTPUT,paste0('phv',SNOW_VAR,'_r2_crossval.txt')))
 # file.remove(r2_fns) #don't remove individual files. can combine with new sim runs another time
 
 search_str=paste0('^phv',SNOW_VAR,'_pctmae*.txt$')
@@ -233,5 +233,5 @@ pctmae_df <- suppressMessages(
 	map_df(.x=pctmae_fns,.f=read_tsv)
 )
 write_tsv(stationsweRegression::format_numeric(pctmae_df,sci=FALSE),
-					path=file.path(PATH_OUTPUT,paste0('phv',SNOW_VAR,'_pctmae_crossval.txt')))
+					file=file.path(PATH_OUTPUT,paste0('phv',SNOW_VAR,'_pctmae_crossval.txt')))
 # file.remove(pctmae_fns) #don't remove individual files. can combine with new sim runs another time
